@@ -53,14 +53,3 @@ wifi_config*.hpp
 *.swp
 *.swo
 .cache/
-
-# Python environments used by PlatformIO tooling
-.venv/
-venv/
-env/
-__pycache__/
-*.py[cod]
-
-# OS files
-.DS_Store
-Thumbs.db
