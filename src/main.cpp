@@ -16,11 +16,26 @@ const char* HOSTNAME  = "vibro";
 // Bei XIAO-Arduino-Pinbelegung D2 (GPIO 1) verwenden
 static constexpr int MOTOR_PIN = 1;
 
-static constexpr int PWM_FREQ = 20000;
-static constexpr int PWM_BITS = 8;
+static constexpr int PWM_FREQ    = 20000;
+static constexpr int PWM_BITS    = 8;
 static constexpr int PWM_MAX_DUTY = 170; // ca. 67 % von 255
 
 WebServer server(80);
+
+// ===== Onboard-LED =====
+
+#if defined(ARDUINO_XIAO_ESP32C3)
+  // XIAO C3: LED ist active LOW (LOW = an, HIGH = aus)
+  static constexpr int  LED_PIN        = LED_BUILTIN;
+  static constexpr bool LED_ACTIVE_LOW = true;
+#else
+  // XIAO S3, DevKit und die meisten anderen: active HIGH
+  static constexpr int  LED_PIN        = LED_BUILTIN;
+  static constexpr bool LED_ACTIVE_LOW = false;
+#endif
+
+inline void ledOn()  { digitalWrite(LED_PIN, LED_ACTIVE_LOW ? LOW  : HIGH); }
+inline void ledOff() { digitalWrite(LED_PIN, LED_ACTIVE_LOW ? HIGH : LOW);  }
 
 // ===== PWM-Kompatibilität Arduino-ESP32 2.x / 3.x =====
 
@@ -44,11 +59,14 @@ void pwmWriteValue(int duty) {
 
 void motorOff() {
   pwmWriteValue(0);
+  ledOff();
 }
 
 void motorDuty(int duty) {
   duty = constrain(duty, 0, PWM_MAX_DUTY);
   pwmWriteValue(duty);
+  if (duty > 0) ledOn();
+  else          ledOff();
 }
 
 // ===== Muster-Zustandsmaschine =====
@@ -69,10 +87,10 @@ struct Pattern {
   int groupIndex = 0;
   int pulseIndex = 0;
 
-  int onMs = 120;
-  int offMs = 80;
+  int onMs    = 120;
+  int offMs   = 80;
   int pauseMs = 500;
-  int duty = PWM_MAX_DUTY;
+  int duty    = PWM_MAX_DUTY;
 
   unsigned long nextAt = 0;
 };
@@ -85,13 +103,13 @@ bool timeReached(unsigned long t) {
 
 void stopPattern() {
   pattern.active = false;
-  pattern.phase = Phase::Idle;
+  pattern.phase  = Phase::Idle;
   motorOff();
 }
 
 void startPulse() {
   motorDuty(pattern.duty);
-  pattern.phase = Phase::PulseOn;
+  pattern.phase  = Phase::PulseOn;
   pattern.nextAt = millis() + pattern.onMs;
 }
 
@@ -100,7 +118,7 @@ bool parseSequence(const String& seq) {
 
   int start = 0;
   while (start < seq.length() && pattern.groupCount < 8) {
-    int comma = seq.indexOf(',', start);
+    int comma  = seq.indexOf(',', start);
     String part = comma >= 0 ? seq.substring(start, comma) : seq.substring(start);
     part.trim();
 
@@ -121,15 +139,15 @@ bool parseSequence(const String& seq) {
 void startPatternFromRequest() {
   stopPattern();
 
-  pattern.onMs = server.hasArg("on") ? server.arg("on").toInt() : 120;
-  pattern.offMs = server.hasArg("off") ? server.arg("off").toInt() : 80;
+  pattern.onMs    = server.hasArg("on")    ? server.arg("on").toInt()    : 120;
+  pattern.offMs   = server.hasArg("off")   ? server.arg("off").toInt()   : 80;
   pattern.pauseMs = server.hasArg("pause") ? server.arg("pause").toInt() : 500;
-  pattern.duty = server.hasArg("duty") ? server.arg("duty").toInt() : PWM_MAX_DUTY;
+  pattern.duty    = server.hasArg("duty")  ? server.arg("duty").toInt()  : PWM_MAX_DUTY;
 
-  pattern.onMs = constrain(pattern.onMs, 20, 2000);
-  pattern.offMs = constrain(pattern.offMs, 20, 2000);
-  pattern.pauseMs = constrain(pattern.pauseMs, 0, 5000);
-  pattern.duty = constrain(pattern.duty, 0, PWM_MAX_DUTY);
+  pattern.onMs    = constrain(pattern.onMs,    20,    2000);
+  pattern.offMs   = constrain(pattern.offMs,   20,    2000);
+  pattern.pauseMs = constrain(pattern.pauseMs,  0,    5000);
+  pattern.duty    = constrain(pattern.duty,      0, PWM_MAX_DUTY);
 
   bool ok = false;
 
@@ -151,7 +169,7 @@ void startPatternFromRequest() {
     return;
   }
 
-  pattern.active = true;
+  pattern.active     = true;
   pattern.groupIndex = 0;
   pattern.pulseIndex = 0;
 
@@ -161,7 +179,7 @@ void startPatternFromRequest() {
 }
 
 void patternLoop() {
-  if (!pattern.active) return;
+  if (!pattern.active)           return;
   if (!timeReached(pattern.nextAt)) return;
 
   switch (pattern.phase) {
@@ -170,14 +188,14 @@ void patternLoop() {
       pattern.pulseIndex++;
 
       if (pattern.pulseIndex < pattern.groups[pattern.groupIndex]) {
-        pattern.phase = Phase::PulseOff;
+        pattern.phase  = Phase::PulseOff;
         pattern.nextAt = millis() + pattern.offMs;
       } else {
         pattern.groupIndex++;
         pattern.pulseIndex = 0;
 
         if (pattern.groupIndex < pattern.groupCount) {
-          pattern.phase = Phase::GroupPause;
+          pattern.phase  = Phase::GroupPause;
           pattern.nextAt = millis() + pattern.pauseMs;
         } else {
           stopPattern();
@@ -269,6 +287,9 @@ void connectWifi() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+
+  pinMode(LED_PIN, OUTPUT);
+  ledOff();
 
   pwmInit();
   motorOff();

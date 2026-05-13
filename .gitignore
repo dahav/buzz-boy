@@ -45,11 +45,3 @@ wifi_config*.hpp
 *.pem
 *.p12
 *.pfx
-
-# Logs and temporary files
-*.log
-*.tmp
-*.bak
-*.swp
-*.swo
-.cache/
